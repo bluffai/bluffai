@@ -1,32 +1,154 @@
+import importlib
+import pathlib
 import random
+import sys
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto, unique
-from typing import Dict, NewType, Tuple
+from typing import Any, NewType, NoReturn, Sized, Tuple
+
+import click
+
+from bluffai.__version__ import __version__
+
+
+class AgentTestFailure(Exception):
+    pass
+
+
+class _ExitCode(int, Enum):
+    OK = 0
+    ERROR = 1
+
+
+def main() -> NoReturn:
+    sys.exit(_bluffai_cli(standalone_mode=False))
+
+
+@click.group(name="bluffai")
+@click.help_option("-h", "--help")
+@click.version_option(__version__, "-v", "--version")
+def _bluffai_cli() -> None:
+    pass
+
+
+@_bluffai_cli.command(
+    name="test",
+    help="Checks that your bluffai agent is ready for poker simulation.",
+)
+@click.help_option("-h", "--help")
+def _test() -> _ExitCode:
+    try:
+        agent = _import_agent()
+    except ImportError as exc:
+        raise AgentTestFailure(
+            "Could not find the file `main.py` in your current working directory. To "
+            "fix this error, you must store your bluffai agent instance in a variable "
+            "`agent` in a file `main.py`."
+        ) from exc
+    except AttributeError as exc:
+        raise AgentTestFailure(
+            "Could not find the variable `agent` in the file `main.py`. To fix this "
+            "error, you must store your bluffai agent instance in a variable `agent` "
+            "in a file `main.py`."
+        ) from exc
+
+    if not isinstance(agent, Agent):
+        raise AgentTestFailure(
+            f"Agent type {type(agent)} is not a subclass of {Agent}. To fix this "
+            f"error, you must make {type(agent)} a subclass of {Agent}."
+        )
+
+    try:
+        state = State()
+        agent.observe_state(state)
+    except NotImplementedError as exc:
+        raise AgentTestFailure(
+            "Agent method `observe_state` is not implemented. To fix this error, you "
+            "must override the method `observe_state` with your own implementation."
+        ) from exc
+
+    try:
+        event: Event = {}
+        agent.observe_event(event)
+    except NotImplementedError as exc:
+        raise AgentTestFailure(
+            "Agent method `observe_event` is not implemented. To fix this error, you "
+            f"must create a subclass of {Agent} and override the method "
+            "`observe_event` with your own implementation."
+        ) from exc
+
+    try:
+        state = State()
+        player_id = "player-0"
+        action = agent.decide_action(player_id, state)
+    except NotImplementedError as exc:
+        raise AgentTestFailure(
+            "Agent method `decide_action` is not implemented. To fix this error, you "
+            f"must create a subclass of {Agent} and override the method "
+            "`decide_action` with your own implementation."
+        ) from exc
+
+    if not isinstance(action, Action):
+        raise AgentTestFailure(
+            f"{agent.decide_action} returned the value {action} with type "
+            f"{type(action)}, which is not equal to the type {Action}. Your "
+            "implementation of the method `decide_action` must return a value with "
+            f"type {Action}."
+        )
+
+    state = State()
+    player_id = PlayerID("player-0")
+    action = agent.decide_action(player_id, state)
+    try:
+        state.apply_action(action)
+    except InvalidActionError as exc:
+        raise AgentTestFailure(
+            f"{agent.decide_action} returned an invalid action. Your implementation of "
+            "the method `decide_action` must comply with the rules of the game of "
+            "Texas Hold'em poker."
+        ) from exc
+    except InvalidActionForStateError as exc:
+        raise AgentTestFailure(
+            f"{agent.decide_action} returned an invalid action for the given game "
+            "state. Your implementation of the method `decide_action` must comply with "
+            "the rules of the game of Texas Hold'em poker."
+        ) from exc
+
+    print("All tests have passed. Your bluffai agent is ready for poker simulation.")
+    return _ExitCode.OK
+
+
+def _import_agent() -> "Agent":
+    sys.path.insert(0, str(pathlib.Path.cwd()))
+    module = importlib.import_module("main")
+    agent = getattr(module, "agent")
+    return agent
+
 
 RoomID = NewType("RoomID", uuid.UUID)
 """
-The unique ID of a poker room.
+A unique ID of a poker room.
 """
 
-PlayerID = NewType("PlayerID", uuid.UUID)
+PlayerID = str
 """
-The unique ID of a poker player in a `Room`.
+A unique ID of a poker player in a `Room`.
 """
 
 PlayerAgentAddress = NewType("PlayerAgentAddress", str)
 """
-The IP address of a poker player agent.
+An IP address of a poker player agent.
 """
 
-NumChips = NewType("NumChips", int)
+NumChips = int
 """
-The number of chips.
+A number of chips.
 """
 
 RandomSeed = int | float | str | bytes | bytearray | None
 """
-The seed value for a pseudo-random number generator.
+A seed value for a pseudo-random number generator.
 """
 
 
@@ -86,7 +208,7 @@ class Card(Enum):
     SPADES_ACE = auto()
 
 
-class Deck:
+class Deck(Sized):
     """
     Represents the state of a deck of cards.
     """
@@ -94,11 +216,11 @@ class Deck:
     _random: random.Random
     _cards: list[Card]
 
-    def __init__(self, random_seed: RandomSeed = None):
+    def __init__(self, random_seed: RandomSeed = None) -> None:
         """
         Args:
-            random_seed: The seed value for the pseudo-random number generator that
-            shuffles the deck of cards
+            random_seed (RandomSeed): The seed value for the pseudo-random number
+                generator that shuffles the deck of cards
         """
         self._random = random.Random(random_seed)
         self._cards = [
@@ -156,6 +278,9 @@ class Deck:
             Card.SPADES_ACE,
         ]
 
+    def __len__(self) -> int:
+        return len(self._cards)
+
     def shuffle(self) -> None:
         """
         Shuffles the cards in the deck.
@@ -164,133 +289,430 @@ class Deck:
 
     def deal_card(self) -> Card:
         """
-        Removes the top deal_card from the deck and returns it.
+        Removes the top card from the deck and returns it.
+
+        Returns:
+            Card: the top card in the deck.
         """
         return self._cards.pop()
 
 
-class NotEnoughPlayersInHandError(Exception):
+class ActionType(Enum):
     """
-    Attempted to play a hand of poker with too few players. A hand must have at least 2
-    players.
+    `ActionType` enumerates the type of actions that an agent can take during a game of
+    Texas Hold'em poker.
+    """
+
+    CALL = "call"
+    CHECK = "check"
+    FOLD = "fold"
+    RAISE = "raise"
+
+
+class EventType(Enum):
+    PLAYER_FOLDED = "player_folded"
+    PLAYER_CHECKED = "player_checked"
+    PLAYER_CALLED = "player_called"
+    PLAYER_RAISED = "player_raised"
+
+
+Event = dict[str, Any]
+
+
+@dataclass
+class Action:
+    """
+    `Action` represents an action that an `Agent` can take during a game of Texas
+    Hold'em poker.
+    """
+
+    player_id: PlayerID
+    type: ActionType
+    bet: NumChips | None = None
+
+    def validate(self) -> None:
+        if self.type == ActionType.CALL:
+            if self.bet is None or self.bet == 0:
+                raise InvalidActionError(
+                    f"Action with type {ActionType.CALL} has bet {self.bet}. Actions "
+                    f"with type {ActionType.CALL} must have a positive bet value."
+                )
+
+        if self.type == ActionType.RAISE:
+            if self.bet is None or self.bet == 0:
+                raise InvalidActionError(
+                    f"Action with type {ActionType.RAISE} has bet {self.bet}. Actions "
+                    f"with type {ActionType.RAISE} must have a positive bet value."
+                )
+
+    def to_event(self) -> Event:
+        if self.type == ActionType.FOLD:
+            return {
+                "type": EventType.PLAYER_FOLDED,
+                "player_id": self.player_id,
+            }
+
+        if self.type == ActionType.CHECK:
+            return {
+                "type": EventType.PLAYER_CHECKED,
+                "player_id": self.player_id,
+            }
+
+        if self.type == ActionType.CALL:
+            return {
+                "type": EventType.PLAYER_CALLED,
+                "player_id": self.player_id,
+                "num_chips": self.bet,
+            }
+
+        if self.type == ActionType.RAISE:
+            return {
+                "type": EventType.PLAYER_RAISED,
+                "player_id": self.player_id,
+                "num_chips": self.bet,
+            }
+
+        raise RuntimeError
+
+
+class InvalidActionForStateError(Exception):
+    """
+    `InvalidActionForStateError` is raised when an `Action` cannot be applied to a
+    given `State`.
+    """
+
+
+class InvalidActionError(Exception):
+    """
+    `InvalidActionError` is raised when an `Action` is invalid.
     """
 
 
 @dataclass
-class Hand:
+class Player:
     """
-    `Hand` represents the state of a hand in a game of Texas Hold'em poker.
+    `Player` represents the state of a player ina game of Texas Hold'em poker.
     """
 
-    _player_ids: list[PlayerID]
-    _player_hole_cards: dict[PlayerID, Tuple[Card, Card]]
-    _flop_cards: Tuple[Card, Card, Card]
-    _turn_card: Card
-    _river_card: Card
-    _big_blind_num_chips: NumChips
-    _little_blind_num_chips: NumChips
+    id: PlayerID
+    stack: NumChips
+    bet: NumChips = 0
+    has_folded: bool = False
 
-    def __init__(
-        self,
-        player_ids: list[PlayerID],
-        big_blind_num_chips: NumChips,
-        little_blind_num_chips: NumChips,
-    ):
+
+@dataclass
+class State:
+    """
+    `State` represents the state of a game of Texas Hold'em poker.
+    """
+
+    players: list[Player] = field(default_factory=list)
+    player_bets: dict[PlayerID, NumChips] = field(default_factory=dict)
+    player_stacks: dict[PlayerID, NumChips] = field(default_factory=dict)
+    player_has_folded: dict[PlayerID, bool] = field(default_factory=dict)
+    player_ids: list[PlayerID] = field(default_factory=list)
+
+    @property
+    def largest_bet(self) -> NumChips:
         """
+        Returns the largest bet for the current betting round.
+
+        Returns:
+            NumChips: the number of chips in the largest bet
+        """
+        if self.players == []:
+            return 0
+        return max([player.bet for player in self.players])
+
+    def player(self, player_id: PlayerID) -> Player | None:
+        """
+        Returns the player in the game with ID `player_id`, or returns `None` if there
+        is no player in the game with ID `player_id`.
+
         Args:
-            player_ids: A list of player IDs for players participating in the poker
-            hand.
+            player_id (PlayerID): the ID of the player
 
-        Raises:
-            NotEnoughPlayersInHandError
+        Returns:
+            Player | None: the player in the game, or `None` if the player is not in the
+                game
         """
-        if len(player_ids) < 2:
-            raise NotEnoughPlayersInHandError
+        for player in self.players:
+            if player.id == player_id:
+                return player
+        return None
 
-        deck = Deck()
-        deck.shuffle()
 
-        self._player_hold_cards = {
-            player_id: (deck.deal_card(), deck.deal_card())
-            for player_id in self._player_ids
-        }
+def apply(state: State, action: Action) -> None:
+    """
+    Applies the `action` to the `state`, simulating an action being performed in the
+    game of Texas Hold'em poker.
 
-        self._flop_cards = (deck.deal_card(), deck.deal_card(), deck.deal_card())
-        self._turn_card = deck.deal_card()
-        self._river_card = deck.deal_card()
+    Args:
+        state ()
+        action (Action): the action to apply to the game.
+    """
+    if action.type == ActionType.FOLD:
+        player = state.player(action.player_id)
+        assert player is not None
+        player.has_folded = True
+        return
 
-        self._big_blind_num_chips = big_blind_num_chips
-        self._little_blind_num_chips = little_blind_num_chips
-    
-    def play_preflop_round(self):
-        
+    if action.type == ActionType.CHECK:
+        return
+
+    if action.type == ActionType.CALL or action.type == ActionType.RAISE:
+        assert action.bet is not None
+        player = state.player(action.player_id)
+        assert player is not None
+        player.bet = action.bet
+        return
+
+
+def validate_action_for_state(state: State, action: Action) -> None:
+    """
+    Validates that the `action` can be applied to the `state`, according to the rules
+    of Texas Hold'em poker.
+
+    Args:
+        state (State): the state of the game of Texas Hold'em poker.
+        action (Action): the action to be applied to the `state`.
+    """
+    if action.player_id not in state.player_ids:
+        raise InvalidActionForStateError(
+            "Cannot apply an action for a player that is not in the game."
+        )
+
+    if action.type == ActionType.CHECK:
+        if state.largest_bet != 0:
+            raise InvalidActionForStateError(
+                f"Cannot apply an action with type {ActionType.CHECK} when there "
+                "is an existing bet in the current betting round."
+            )
+
+    if action.type == ActionType.CALL:
+        if state.largest_bet == 0:
+            raise InvalidActionForStateError(
+                f"Cannot apply an action with type {ActionType.CALL} when there "
+                "is no existing bet in the current betting round."
+            )
+
+        assert action.bet is not None
+        if action.bet > state.player_stacks[action.player_id]:
+            raise InvalidActionForStateError(
+                f"Cannot apply an action with type {ActionType.CALL} and a bet "
+                "that is greater than the player's stack of chips."
+            )
+        if action.bet > state.largest_bet:
+            raise InvalidActionForStateError(
+                f"Cannot apply an action with type {ActionType.CALL} and a bet "
+                "that is greater than the largest bet in the current betting round."
+            )
+        if (
+            action.bet < state.largest_bet
+            and action.bet != state.player_stacks[action.player_id]
+        ):
+            raise InvalidActionForStateError(
+                f"Cannot apply an action with type {ActionType.CALL} and a bet "
+                "that is less than the largest bet in the current betting "
+                "round without going all-in."
+            )
+
+    if action.type == ActionType.RAISE:
+        assert action.bet is not None
+        if action.bet > state.player_stacks[action.player_id]:
+            raise InvalidActionForStateError(
+                f"Cannot apply an action with type {ActionType.RAISE} and a bet "
+                "that is greater than the player's stack of chips."
+            )
+        if action.bet <= state.largest_bet:
+            raise InvalidActionForStateError(
+                f"Cannot apply an action with type {ActionType.RAISE} and a bet "
+                "that is less than or equal to the largest bet in the current "
+                "betting round."
+            )
+
+
+def apply_action(state: State, action: Action) -> None:
+    """
+    Updates the current state based on the `action`.
+
+    Args:
+        action (Action): the action to apply to the game.
+    """
+    if action.type == ActionType.FOLD:
+        player = state.player(action.player_id)
+        assert player is not None
+        player.has_folded = True
+        return
+
+    if action.type == ActionType.CHECK:
+        return
+
+    if action.type == ActionType.CALL or action.type == ActionType.RAISE:
+        assert action.bet is not None
+        player = state.player(action.player_id)
+        assert player is not None
+        player.bet = action.bet
+        return
+
+
+class Agent:
+    """
+    `Agent` is a base class for implementing agents in a game of Texas Hold'em poker.
+
+    This class is not intended to be instantiated directly. Instead, you should create
+    your own subclass of `Agent` and override the following methods:
+
+    - `observe_state(self, state: State) -> None`
+    - `observe_event(self, event: Event) -> None`
+    - `decide_action(self, game_state: State) -> Action`
+    """
+
+    def observe_state(self, state: State) -> None:
+        """
+        Observes the `state` of the game of Texas Hold'em poker.
+
+        Your agent can use the information in the `state` to decide future actions.
+
+        Args:
+            state (State): the state of the game that is being observed.
+        """
+        raise NotImplementedError
+
+    def observe_event(self, event: Event) -> None:
+        """
+        Observes the `event` that occurred in the game of Texas Hold'em poker.
+
+        Your agent can use the information in the `event` to decide future actions.
+
+        Args:
+            event (Event): the event in the game that is being observed.
+        """
+        raise NotImplementedError
+
+    def decide_action(self, player_id: PlayerID, state: State) -> Action:
+        """
+        Returns an action for the player with ID `player_id` in a game of Texas Hold'em
+        poker with the given `state`.
+
+        Args:
+            player_id (PlayerID): the ID of the player that the action is for.
+            state (State): the state of the game that the action will be applied to.
+
+        Returns:
+            Action: the action that will be applied to the game.
+        """
+        raise NotImplementedError
 
 
 @dataclass
-class Game:
+class _Player:
+    """
+    `Player` represents the state of a player in a `Game`.
+    """
+
+    id: PlayerID
+    stack_size: NumChips
+    hole_cards: Tuple[Card, Card] | None = None
+    bet_size: NumChips | None = None
+    is_all_in: bool = False
+    has_folded: bool = False
+
+
+Pot = NewType("Pot", dict[PlayerID, NumChips])
+
+
+@unique
+class Round(Enum):
+    """
+    `Round` is the betting round in a `Game`.
+    """
+
+    PREFLOP = auto()
+    FLOP = auto()
+    TURN = auto()
+    RIVER = auto()
+    SHOWDOWN = auto()
+
+
+class Step:
+    """
+    `Step` represents a step in a `Game`.
+    """
+
+
+@dataclass(frozen=True)
+class StartNewHand(Step):
+    """
+    `StartNewHand` is a step in a `Game` that starts a new hand.
+    """
+
+
+@dataclass(frozen=True)
+class PostLittleBlind(Step):
+    """
+    `PostLittleBlind` is a step in a `Game` where the player in the little blind
+    position must bet the little blind amount.
+    """
+
+    player_id: PlayerID
+
+
+@dataclass(frozen=True)
+class PostBigBlind(Step):
+    """
+    `PostBigBlind` is a step in a `Game` where the player in the big blind position
+    must bet the big blind amount.
+    """
+
+    player_id: PlayerID
+
+
+@dataclass(frozen=True)
+class PlayerAction(Step):
+    """
+    `PlayerAction` is a step in a `Game` where a player must decide to check, call,
+    raise, or fold.
+    """
+
+    player_id: PlayerID
+
+
+@dataclass
+class _Game:
     """
     `Game` represents the state of a game of Texas Hold'em poker.
     """
 
-    _player_ids: list[PlayerID]
-    _player_num_chips: dict[PlayerID, NumChips]
-    _big_blind_num_chips: NumChips
-    _little_blind_num_chips: NumChips
+    big_blind: NumChips
+    little_blind: NumChips
+    players: list[_Player]
+    button_position: int = 0
+    round: Round | None = None
+    last_raise_player_id: PlayerID | None = None
+    last_raise_num_chips: NumChips | None = None
+    pots: list[Pot] | None = None
+    flop_cards: Tuple[Card, Card, Card] | None = None
+    turn_card: Card | None = None
+    river_card: Card | None = None
 
-    def __init__(
-        self,
-        player_ids: list[PlayerID],
-        buy_in_num_chips: NumChips,
-        big_blind_num_chips: NumChips,
-        little_blind_num_chips: NumChips,
-    ) -> None:
-        """
-        Args:
-            player_ids: A list of player IDs for players in the poker game.
+    def next_step(self) -> Step | None:
+        if len(self.players) < 2:
+            return None
 
-            buy_in_num_chips: The starting number of chips for each player.
+        if self.round is None:
+            return StartNewHand()
 
-            big_blind_num_chips: The number of chips that the big blind player must bet
-            at the beginning of each hand.
+        if self.round == Round.PREFLOP:
+            little_blind_position = (self.button_position + 1) % len(self.players)
+            little_blind_player = self.players[little_blind_position]
+            if little_blind_player.bet_size is None:
+                return PostLittleBlind(little_blind_player.id)
 
-            little_blind_num_chips: The number of chips that the little blind player
-            must bet at the beginning of each hand.
-        """
-        self._player_ids = player_ids
-        self._player_num_chips = {
-            player_id: buy_in_num_chips for player_id in self._player_ids
-        }
-        self._big_blind_num_chips = big_blind_num_chips
-        self._little_blind_num_chips = little_blind_num_chips
-
-    def play_hand(self) -> None:
-        """
-        Simulates a hand of poker with the players in the `Game`.
-
-        Args:
-            game: The state of the game before playing the hand of poker.
-
-        Returns:
-            The state of the game after playing a hand of poker.
-
-        Raises:
-            GameUnplayableError
-        """
-        hand = Hand(
-            player_ids=self.player_ids_with_chips(),
-            big_blind_num_chips=self._big_blind_num_chips,
-            little_blind_num_chips=self._little_blind_num_chips,
-        )
-
-        hand.play_preflop_round()
-
-    def player_ids_with_chips(self) -> list[PlayerID]:
-        return list(
-            filter(
-                lambda player_id: self._player_num_chips[player_id] > 0,
-                self._player_ids,
-            ),
-        )
+            big_blind_position = (little_blind_position + 1) % len(self.players)
+            big_blind_player = self.players[big_blind_position]
+            if big_blind_player.bet_size is None:
+                return PostBigBlind(big_blind_player.id)
 
 
 @dataclass
@@ -299,61 +721,123 @@ class Room:
     `Room` represents a room for playing games of poker.
     """
 
-    _id: RoomID
-    _player_agent_addresses: Dict[PlayerID, PlayerAgentAddress]
-    _random_seed: RandomSeed
+    id: RoomID
+    players: list[_Player]
 
-    def __init__(self, random_seed=None) -> None:
-        self._id = RoomID(uuid.uuid4())
-        self._player_agent_addresses = {}
-        self._random_seed = random_seed
+    def __init__(self) -> None:
+        self.id = RoomID(uuid.uuid4())
 
-    def add_player(
-        self,
-        player_id: PlayerID,
-        player_agent_address: PlayerAgentAddress,
-    ) -> None:
+    def add_player(self, player: _Player) -> None:
         """
         Adds a player to the `Room`.
-
-        Args:
-            player_id: The unique ID of the player.
-
-            player_agent_address: The IP address of the player agent.
         """
-        self._player_agent_addresses[player_id] = player_agent_address
+        self.players.append(player)
 
-    def play_game(
-        self,
-        buy_in_num_chips: NumChips,
-        little_blind_num_chips: NumChips,
-        big_blind_num_chips: NumChips,
-    ) -> None:
-        """
-        Simulates a game of poker with the players in the `Room`.
 
-        Args:
-            buy_in_num_chips: The starting number of chips for each player.
+# State(empty) -> Action(create) -> State(s)
+# State(s) -> Action(a) -> State(s')
 
-            big_blind_num_chips: The number of chips that the big blind player must bet
-            at the beginning of each hand.
 
-            little_blind_num_chips: The number of chips that the little blind player
-            must bet at the beginning of each hand.
-        """
-        game_rng = random.Random(self._random_seed)
+class _StateType(Enum):
+    INITIAL = auto()
+    SETTING_BIG_BLIND = auto()
+    SETTING_LITTLE_BLIND = auto()
+    PLAYERS_BUYING_IN = auto()
+    STARTING_HAND = auto()
+    POSTING_BIG_BLIND = auto()
+    POSTING_LITTLE_BLIND = auto()
+    DEALING_HOLD_CARDS = auto()
+    PRE_FLOP_BETTING = auto()
+    DEALING_FLOP_CARDS = auto()
+    POST_FLOP_BETTING = auto()
+    DEALING_TURN_CARD = auto()
+    POST_TURN_BETTING = auto()
+    DEALING_RIVER_CARD = auto()
+    POST_RIVER_BETTING = auto()
+    SHOWDOWN = auto()
+    ENDING_HAND = auto()
+    TERMINAL = auto()
 
-        # Randomize the order of player actions in the poker game.
-        player_ids = list(self._player_agent_addresses.keys())
-        game_rng.shuffle(player_ids)
 
-        # Initialize the poker game.
-        game = Game(
-            player_ids=player_ids,
-            buy_in_num_chips=buy_in_num_chips,
-            little_blind_num_chips=little_blind_num_chips,
-            big_blind_num_chips=big_blind_num_chips,
+# 1. Validate state.
+@dataclass
+class _State:
+    type: _StateType
+    big_blind: NumChips | None = None
+    little_blind: NumChips | None = None
+
+    def __post_init__(self) -> None:
+        match self.type:
+            case _StateType.INITIAL | _StateType.SETTING_BIG_BLIND:
+                assert self.big_blind is None
+                assert self.little_blind is None
+            case _StateType.SETTING_LITTLE_BLIND:
+                assert self.big_blind is not None
+                assert self.little_blind is None
+
+    @property
+    def is_terminal(self) -> bool:
+        return False
+
+
+# 2. Determine next action.
+def next_action(state: _State) -> _Action:
+    if state.big_blind is None:
+        return _Action(
+            type=ActionType.SETS_BIG_BLIND,
+            big_blind=2,
         )
 
-        while True:
-            game.play_hand()
+
+# 3. Validate action.
+@dataclass
+class _Action:
+    def __post_init__(self) -> None:
+        pass
+
+
+# 4. Validate action for state.
+@dataclass
+class _Event:
+    state: _State
+    action: _Action
+
+    def __post_init__(self) -> None:
+        pass
+
+
+# 5. Determine next state.
+def next_state(event: _Event) -> _State:
+    raise NotImplemented
+
+
+# 6. Log action as event.
+def play_game():
+    events = []
+    state = _State()
+    while True:
+        action = next_action(state)
+        event = _Event(state, action)
+        state = next_state(event)
+        events.append(event)
+        if state.is_terminal:
+            break
+
+
+# Actions
+# -------
+# PlayerFolds
+# PlayerChecks
+# PlayerCalls
+# PlayerRaises
+# StartsGame(big_blind, little_blind)
+# EndsGame
+# AddsPlayer
+# StartsHand
+# DealsHoleCards
+# RevealsFlopCards
+# RevealsTurnCards
+# RevealsRiverCards
+# SkipsPlayer
+# StartsShowdown
+# PlayerReveals

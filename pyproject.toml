@@ -20,7 +20,9 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
 ]
-dependencies = []
+dependencies = [
+  "click==8.1.3",
+]
 dev-dependencies = [
   # Code Consistency
   "black",
@@ -42,6 +44,9 @@ Homepage = "https://bluffai.com"
 Documentation = "https://bluffai.com/docs"
 "Source Code" = "https://github.com/bluffai/bluffai"
 "Bug Tracker" = "https://github.com/bluffai/bluffai/issues"
+
+[project.scripts]
+bluffai = "bluffai:main"
 
 [tool.hatch.version]
 path = "src/bluffai/__version__.py"
