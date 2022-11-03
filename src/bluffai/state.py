@@ -5,6 +5,7 @@ from . import Card, Deck, NumChips, PlayerID
 
 StateType = str
 PlayerPosition = int
+Pot = dict[PlayerID, NumChips]
 
 
 class InvalidStateError(Exception):
@@ -65,7 +66,6 @@ class SettingBlinds(State):
     player_ids: list[PlayerID]
     player_stacks: list[NumChips]
     hand_player_ids: list[PlayerID]
-    # TODO: Refactor states to use hand_* state instead of big_blind_position, etc.
 
     def __post_init__(self) -> None:
         validate_state(
@@ -85,20 +85,18 @@ class SettingBlinds(State):
             "Every player must have a non-negative stack.",
         )
         validate_state(
-            len(self.player_ids_in_hand) >= 2,
+            len(self.hand_player_ids) >= 2,
             "The number of players in the the hand must be greater than or equal to 2.",
         )
         validate_state(
-            all(
-                [player_id in self.player_ids for player_id in self.player_ids_in_hand]
-            ),
+            all([player_id in self.player_ids for player_id in self.hand_player_ids]),
             "Every player in the hand must be a player in the game.",
         )
         validate_state(
             all(
                 [
                     self.player_stacks[self.player_ids.index(player_id)]
-                    for player_id in self.player_ids_in_hand
+                    for player_id in self.hand_player_ids
                 ]
             ),
             "Every player in the hand must have a positive stack.",
@@ -117,9 +115,9 @@ class PlacingBlinds(State):
 
     player_ids: list[PlayerID]
     player_stacks: list[NumChips]
-    player_ids_in_hand: list[PlayerID]
-    big_blind: NumChips
+    hand_player_ids: list[PlayerID]
     little_blind: NumChips
+    big_blind: NumChips
 
     def __post_init__(self) -> None:
         validate_state(
@@ -139,26 +137,24 @@ class PlacingBlinds(State):
             "Every player must have a non-negative stack.",
         )
         validate_state(
-            len(self.player_ids_in_hand) >= 2,
+            len(self.hand_player_ids) >= 2,
             "The number of players in the the hand must be greater than or equal to 2.",
         )
         validate_state(
-            all(
-                [player_id in self.player_ids for player_id in self.player_ids_in_hand]
-            ),
+            all([player_id in self.player_ids for player_id in self.hand_player_ids]),
             "Every player in the hand must be a player in the game.",
         )
         validate_state(
             all(
                 [
                     self.player_stacks[self.player_ids.index(player_id)]
-                    for player_id in self.player_ids_in_hand
+                    for player_id in self.hand_player_ids
                 ]
             ),
             "Every player in the hand must have a positive stack.",
         )
-        validate_state(self.big_blind > 0, "The big blind must be positive.")
         validate_state(self.little_blind > 0, "The little blind must be positive.")
+        validate_state(self.big_blind > 0, "The big blind must be positive.")
 
 
 @dataclass
@@ -173,10 +169,10 @@ class ShuffleDeck(State):
 
     player_ids: list[PlayerID]
     player_stacks: list[NumChips]
-    player_ids_in_hand: list[PlayerID]
-    big_blind: NumChips
+    hand_player_ids: list[PlayerID]
     little_blind: NumChips
-    player_bets: list[NumChips]
+    big_blind: NumChips
+    hand_player_bets: list[NumChips]
 
     def __post_init__(self) -> None:
         validate_state(
@@ -196,70 +192,65 @@ class ShuffleDeck(State):
             "Every player must have a non-negative stack.",
         )
         validate_state(
-            len(self.player_ids_in_hand) >= 2,
+            len(self.hand_player_ids) >= 2,
             "The number of players in the the hand must be greater than or equal to 2.",
         )
         validate_state(
-            all(
-                [player_id in self.player_ids for player_id in self.player_ids_in_hand]
-            ),
+            all([player_id in self.player_ids for player_id in self.hand_player_ids]),
             "Every player in the hand must be a player in the game.",
         )
         validate_state(
             all(
                 [
-                    self.player_stacks[self.player_ids.index(player_id)]
-                    for player_id in self.player_ids_in_hand
+                    self.player_stacks[self.player_ids.index(player_id)] > 0
+                    for player_id in self.hand_player_ids
                 ]
             ),
             "Every player in the hand must have a positive stack.",
         )
-        validate_state(self.big_blind > 0, "The big blind must be positive.")
         validate_state(self.little_blind > 0, "The little blind must be positive.")
+        validate_state(self.big_blind > 0, "The big blind must be positive.")
         validate_state(
-            len(self.player_bets) == len(self.player_ids),
-            "Every player must have a bet.",
+            len(self.hand_player_bets) == len(self.hand_player_ids),
+            "Every player in the hand must have a bet.",
         )
         validate_state(
-            all([player_bet >= 0 for player_bet in self.player_bets]),
-            "Every player must have a non-negative bet.",
+            all([hand_player_bet >= 0 for hand_player_bet in self.hand_player_bets]),
+            "Every player in the hand must have a non-negative bet.",
         )
         validate_state(
             all(
                 [
-                    player_bet <= player_stack
-                    for player_bet, player_stack in zip(
-                        self.player_bets, self.player_stacks
+                    self.player_stacks[self.player_ids.index(hand_player_id)]
+                    >= hand_player_bet
+                    for hand_player_id, hand_player_bet in zip(
+                        self.hand_player_ids, self.hand_player_bets
                     )
                 ]
             ),
-            "Every player must have a bet that is less than or equal to their stack.",
+            "Every player in the hand must have a stack that is greater than or equal "
+            "to their bet.",
         )
         validate_state(
-            self.player_bets[self.big_blind_position] == self.big_blind
-            or self.player_bets[self.big_blind_position]
-            == self.player_stacks[self.big_blind_position],
-            "The player in the big blind position must have a bet that is equal to the "
-            "big blind or be all-in.",
-        )
-        validate_state(
-            self.player_bets[self.little_blind_position] == self.little_blind
-            or self.player_bets[self.little_blind_position]
-            == self.player_stacks[self.little_blind_position],
+            self.hand_player_bets[0] == self.big_blind
+            or self.hand_player_bets[0]
+            == self.player_stacks[self.player_ids.index(self.hand_player_ids[1])],
             "The player in the little blind position must have a bet that is equal to "
             "the little blind or be all-in.",
         )
         validate_state(
+            self.hand_player_bets[1] == self.big_blind
+            or self.hand_player_bets[1]
+            == self.player_stacks[self.player_ids.index(self.hand_player_ids[1])],
+            "The player in the big blind position must have a bet that is equal to the "
+            "big blind or be all-in.",
+        )
+        validate_state(
             all(
-                [
-                    player_bet == 0
-                    for player_position, player_bet in enumerate(self.player_bets)
-                    if player_position != self.big_blind_position
-                    and player_position != self.little_blind_position
-                ]
+                [hand_player_bet == 0 for hand_player_bet in self.hand_player_bets[2:]]
             ),
-            "Every player who is not in the big blind position and is not in the "
-            "little blind position must have a bet of 0.",
+            "Every player in the hand who is not in the little blind position and is "
+            "not in the big blind position must have a bet of 0.",
         )
 
 
@@ -275,13 +266,17 @@ class DealingHoldCards(State):
 
     player_ids: list[PlayerID]
     player_stacks: list[NumChips]
-    player_ids_in_hand: list[PlayerID]
-    big_blind: NumChips
+    hand_player_ids: list[PlayerID]
     little_blind: NumChips
-    player_bets: list[NumChips]
+    big_blind: NumChips
+    hand_player_bets: list[NumChips]
     deck: Deck
 
     def __post_init__(self) -> None:
+        validate_state(
+            len(self.player_ids) <= 23,
+            "The number of players must be less than or equal to 23.",
+        )
         validate_state(
             len(self.player_ids) == len(set(self.player_ids)),
             "Every player must have a unique ID.",
@@ -295,98 +290,65 @@ class DealingHoldCards(State):
             "Every player must have a non-negative stack.",
         )
         validate_state(
-            len(self.player_ids_in_hand) >= 2,
+            len(self.hand_player_ids) >= 2,
             "The number of players in the the hand must be greater than or equal to 2.",
         )
         validate_state(
-            all(
-                [player_id in self.player_ids for player_id in self.player_ids_in_hand]
-            ),
+            all([player_id in self.player_ids for player_id in self.hand_player_ids]),
             "Every player in the hand must be a player in the game.",
         )
         validate_state(
             all(
                 [
-                    self.player_stacks[self.player_ids.index(player_id)]
-                    for player_id in self.player_ids_in_hand
+                    self.player_stacks[self.player_ids.index(player_id)] > 0
+                    for player_id in self.hand_player_ids
                 ]
             ),
             "Every player in the hand must have a positive stack.",
         )
-        validate_state(self.big_blind > 0, "The big blind must be positive.")
         validate_state(self.little_blind > 0, "The little blind must be positive.")
+        validate_state(self.big_blind > 0, "The big blind must be positive.")
         validate_state(
-            0 <= self.big_blind_position <= len(self.player_ids),
-            "The big blind position must be in range of the number of players.",
+            len(self.hand_player_bets) == len(self.hand_player_ids),
+            "Every player in the hand must have a bet.",
         )
         validate_state(
-            self.player_stacks[self.big_blind_position] > 0,
-            "The player in the big blind position must have a positive stack.",
-        )
-        validate_state(
-            0 <= self.little_blind_position <= len(self.player_ids),
-            "The little blind position must be in range of the number of players.",
-        )
-        validate_state(
-            self.player_stacks[self.little_blind_position] > 0,
-            "The player in the little blind position must have a positive stack.",
-        )
-        validate_state(
-            self.big_blind_position != self.little_blind_position,
-            "The big blind position must be different from the little blind position.",
-        )
-        player_position = (self.little_blind_position + 1) % len(self.player_ids)
-        while player_position != self.big_blind_position:
-            validate_state(
-                self.player_stacks[player_position] == 0,
-                "Any player between the player in the little blind position and the "
-                "player in the big blind position must have a stack of 0.",
-            )
-            player_position = (player_position + 1) % len(self.player_ids)
-        validate_state(
-            len(self.player_bets) == len(self.player_ids),
-            "Every player must have a bet.",
-        )
-        validate_state(
-            all([player_bet >= 0 for player_bet in self.player_bets]),
-            "Every player must have a non-negative bet.",
+            all([hand_player_bet >= 0 for hand_player_bet in self.hand_player_bets]),
+            "Every player in the hand must have a non-negative bet.",
         )
         validate_state(
             all(
                 [
-                    player_bet <= player_stack
-                    for player_bet, player_stack in zip(
-                        self.player_bets, self.player_stacks
+                    self.player_stacks[self.player_ids.index(hand_player_id)]
+                    >= hand_player_bet
+                    for hand_player_id, hand_player_bet in zip(
+                        self.hand_player_ids, self.hand_player_bets
                     )
                 ]
             ),
-            "Every player must have a bet that is less than or equal to their stack.",
+            "Every player in the hand must have a stack that is greater than or equal "
+            "to their bet.",
         )
         validate_state(
-            self.player_bets[self.big_blind_position] == self.big_blind
-            or self.player_bets[self.big_blind_position]
-            == self.player_stacks[self.big_blind_position],
-            "The player in the big blind position must have a bet that is equal to the "
-            "big blind or be all-in.",
-        )
-        validate_state(
-            self.player_bets[self.little_blind_position] == self.little_blind
-            or self.player_bets[self.little_blind_position]
-            == self.player_stacks[self.little_blind_position],
+            self.hand_player_bets[0] == self.big_blind
+            or self.hand_player_bets[0]
+            == self.player_stacks[self.player_ids.index(self.hand_player_ids[1])],
             "The player in the little blind position must have a bet that is equal to "
             "the little blind or be all-in.",
         )
         validate_state(
+            self.hand_player_bets[1] == self.big_blind
+            or self.hand_player_bets[1]
+            == self.player_stacks[self.player_ids.index(self.hand_player_ids[1])],
+            "The player in the big blind position must have a bet that is equal to the "
+            "big blind or be all-in.",
+        )
+        validate_state(
             all(
-                [
-                    player_bet == 0
-                    for player_position, player_bet in enumerate(self.player_bets)
-                    if player_position != self.big_blind_position
-                    and player_position != self.little_blind_position
-                ]
+                [hand_player_bet == 0 for hand_player_bet in self.hand_player_bets[2:]]
             ),
-            "Every player who is not in the big blind position and is not in the "
-            "little blind position must have a bet of 0.",
+            "Every player in the hand who is not in the little blind position and is "
+            "not in the big blind position must have a bet of 0.",
         )
         validate_state(len(self.deck) == 52, "The deck must have 52 cards.")
 
@@ -406,14 +368,19 @@ class PreFlopBetting(State):
 
     player_ids: list[PlayerID]
     player_stacks: list[NumChips]
-    player_ids_in_hand: list[PlayerID]
-    big_blind: NumChips
+    hand_player_ids: list[PlayerID]
     little_blind: NumChips
-    player_bets: list[NumChips]
+    big_blind: NumChips
+    hand_player_bets: list[NumChips]
     deck: Deck
-    player_hold_cards: list[Tuple[Card, Card]]
+    hand_player_hold_cards: list[Tuple[Card, Card]]
+    hand_player_has_folded: list[bool]
 
     def __post_init__(self) -> None:
+        validate_state(
+            len(self.player_ids) <= 23,
+            "The number of players must be less than or equal to 23.",
+        )
         validate_state(
             len(self.player_ids) == len(set(self.player_ids)),
             "Every player must have a unique ID.",
@@ -427,100 +394,216 @@ class PreFlopBetting(State):
             "Every player must have a non-negative stack.",
         )
         validate_state(
-            len(self.player_ids_in_hand) >= 2,
+            len(self.hand_player_ids) >= 2,
             "The number of players in the the hand must be greater than or equal to 2.",
         )
         validate_state(
-            all(
-                [player_id in self.player_ids for player_id in self.player_ids_in_hand]
-            ),
+            all([player_id in self.player_ids for player_id in self.hand_player_ids]),
             "Every player in the hand must be a player in the game.",
         )
         validate_state(
             all(
                 [
-                    self.player_stacks[self.player_ids.index(player_id)]
-                    for player_id in self.player_ids_in_hand
+                    self.player_stacks[self.player_ids.index(player_id)] > 0
+                    for player_id in self.hand_player_ids
                 ]
             ),
             "Every player in the hand must have a positive stack.",
         )
-        validate_state(self.big_blind > 0, "The big blind must be positive.")
         validate_state(self.little_blind > 0, "The little blind must be positive.")
+        validate_state(self.big_blind > 0, "The big blind must be positive.")
         validate_state(
-            0 <= self.big_blind_position <= len(self.player_ids),
-            "The big blind position must be in range of the number of players.",
+            len(self.hand_player_bets) == len(self.hand_player_ids),
+            "Every player in the hand must have a bet.",
         )
         validate_state(
-            self.player_stacks[self.big_blind_position] > 0,
-            "The player in the big blind position must have a positive stack.",
-        )
-        validate_state(
-            0 <= self.little_blind_position <= len(self.player_ids),
-            "The little blind position must be in range of the number of players.",
-        )
-        validate_state(
-            self.player_stacks[self.little_blind_position] > 0,
-            "The player in the little blind position must have a positive stack.",
-        )
-        validate_state(
-            self.big_blind_position != self.little_blind_position,
-            "The big blind position must be different from the little blind position.",
-        )
-        player_position = (self.little_blind_position + 1) % len(self.player_ids)
-        while player_position != self.big_blind_position:
-            validate_state(
-                self.player_stacks[player_position] == 0,
-                "Any player between the player in the little blind position and the "
-                "player in the big blind position must have a stack of 0.",
-            )
-            player_position = (player_position + 1) % len(self.player_ids)
-        validate_state(
-            len(self.player_bets) == len(self.player_ids),
-            "Every player must have a bet.",
-        )
-        validate_state(
-            all([player_bet >= 0 for player_bet in self.player_bets]),
-            "Every player must have a non-negative bet.",
+            all([hand_player_bet >= 0 for hand_player_bet in self.hand_player_bets]),
+            "Every player in the hand must have a non-negative bet.",
         )
         validate_state(
             all(
                 [
-                    player_bet <= player_stack
-                    for player_bet, player_stack in zip(
-                        self.player_bets, self.player_stacks
+                    self.player_stacks[self.player_ids.index(hand_player_id)]
+                    >= hand_player_bet
+                    for hand_player_id, hand_player_bet in zip(
+                        self.hand_player_ids, self.hand_player_bets
                     )
                 ]
             ),
-            "Every player must have a bet that is less than or equal to their stack.",
+            "Every player in the hand must have a stack that is greater than or equal "
+            "to their bet.",
         )
         validate_state(
-            self.player_bets[self.big_blind_position] == self.big_blind
-            or self.player_bets[self.big_blind_position]
-            == self.player_stacks[self.big_blind_position],
-            "The player in the big blind position must have a bet that is equal to the "
-            "big blind or be all-in.",
+            len(self.deck) == 52 - 2 * len(self.hand_player_ids),
+            "The deck must have 52 cards minus 2 cards for each player in the hand.",
         )
         validate_state(
-            self.player_bets[self.little_blind_position] == self.little_blind
-            or self.player_bets[self.little_blind_position]
-            == self.player_stacks[self.little_blind_position],
-            "The player in the little blind position must have a bet that is equal to "
-            "the little blind or be all-in.",
+            len(self.hand_player_hold_cards) == len(self.hand_player_ids),
+            "Every player in the hand must have hole cards.",
+        )
+        validate_state(
+            len(self.hand_player_has_folded) == len(self.hand_player_ids),
+            "Every player in the hand must have folded or not have folded.",
+        )
+        validate_state(
+            not all(self.hand_player_has_folded),
+            "At least one player in the hand must not have folded.",
+        )
+
+
+@dataclass
+class DealingFlopCards(State):
+    """
+    Previous states:
+        * PreFlopBetting -> FinishPreFlopBetting
+
+    Next states:
+        * DealFlopCards -> PostFlopBetting
+    """
+
+    player_ids: list[PlayerID]
+    player_stacks: list[NumChips]
+    hand_player_ids: list[PlayerID]
+    little_blind: NumChips
+    big_blind: NumChips
+    hand_player_bets: list[NumChips]
+    deck: Deck
+    hand_player_hold_cards: list[Tuple[Card, Card]]
+    hand_player_has_folded: list[bool]
+    pots: list[Pot]
+
+    def __post_init__(self) -> None:
+        validate_state(
+            len(self.player_ids) <= 23,
+            "The number of players must be less than or equal to 23.",
+        )
+        validate_state(
+            len(self.player_ids) == len(set(self.player_ids)),
+            "Every player must have a unique ID.",
+        )
+        validate_state(
+            len(self.player_stacks) == len(self.player_ids),
+            "Every player must have a stack.",
+        )
+        validate_state(
+            all([player_stack >= 0 for player_stack in self.player_stacks]),
+            "Every player must have a non-negative stack.",
+        )
+        validate_state(
+            len(self.hand_player_ids) >= 2,
+            "The number of players in the the hand must be greater than or equal to 2.",
+        )
+        validate_state(
+            all([player_id in self.player_ids for player_id in self.hand_player_ids]),
+            "Every player in the hand must be a player in the game.",
         )
         validate_state(
             all(
                 [
-                    player_bet == 0
-                    for player_position, player_bet in enumerate(self.player_bets)
-                    if player_position != self.big_blind_position
-                    and player_position != self.little_blind_position
+                    self.player_stacks[self.player_ids.index(player_id)] >= 0
+                    for player_id in self.hand_player_ids
                 ]
             ),
-            "Every player who is not in the big blind position and is not in the "
-            "little blind position must have a bet of 0.",
+            "Every player in the hand must have a non-negative stack.",
+        )
+        validate_state(self.little_blind > 0, "The little blind must be positive.")
+        validate_state(self.big_blind > 0, "The big blind must be positive.")
+        validate_state(
+            len(self.hand_player_bets) == len(self.hand_player_ids),
+            "Every player in the hand must have a bet.",
         )
         validate_state(
-            len(self.deck) == 52,
-            "The deck must have 52 cards minus 2 cards for each player.",
+            all([hand_player_bet == 0 for hand_player_bet in self.hand_player_bets]),
+            "Every player in the hand must have a bet equal to 0.",
         )
+        validate_state(
+            len(self.deck) == 52 - 2 * len(self.hand_player_ids),
+            "The deck must have 52 cards minus 2 cards for each player in the hand.",
+        )
+        validate_state(
+            len(self.hand_player_hold_cards) == len(self.hand_player_ids),
+            "Every player in the hand must have hole cards.",
+        )
+        validate_state(
+            len(self.hand_player_has_folded) == len(self.hand_player_ids),
+            "Every player in the hand must have folded or not have folded.",
+        )
+        validate_state(
+            not all(self.hand_player_has_folded),
+            "At least one player in the hand must not have folded.",
+        )
+        validate_state(
+            all(
+                [
+                    all([player_id in self.player_ids for player_id in pot])
+                    for pot in self.pots
+                ]
+            ),
+            "For every pot in the hand, every player in the pot must be a player in "
+            "the game.",
+        )
+        validate_state(
+            all(
+                [
+                    all([player_stake > 0 for player_stake in pot.values()])
+                    for pot in self.pots
+                ]
+            ),
+            "For every pot in the hand, every player must have a positive stake.",
+        )
+        validate_state(
+            all(
+                [
+                    all([player_stake > 0 for player_stake in pot.values()])
+                    for pot in self.pots
+                ]
+            ),
+            "For every pot in the hand, every player must have a positive stake.",
+        )
+
+
+# Pots
+# After a betting round, there may be multiple pots (a.k.a. side pots).
+# In each side pot, there are a set of players who contributed to the side pot
+# and a fixed contribution to the side pot by each player.
+# Thus, we can represent a side pot as a tuple [list(player_id), player_chips]
+#
+# In the example:
+# PlayerA: 100, not folded, not all-in
+# PlayerB: 80, folded, not all-in
+# PlayerC: 90, not folded, all-in
+# PlayerD: 100, not folded, not all-in
+# PlayerE: 95, folded, not all-in
+# PlayerF: 50, not folded, all-in
+#
+# We have the following pots:
+#
+# Pot 1:
+# PlayerA: 50
+# PlayerB: 50 (folded)
+# PlayerC: 50
+# PlayerD: 50
+# PlayerE: 50 (folded)
+# PlayerF: 50
+#
+# Pot 2:
+# PlayerA: 30
+# PlayerB: 30 (folded)
+# PlayerC: 30
+# PlayerD: 30
+# PlayerE: 30 (folded)
+#
+# Pot 3:
+# PlayerA: 10
+# PlayerC: 10
+# PlayerD: 10
+# PlayerE: 10 (folded)
+#
+# Pot 4:
+# PlayerA: 5
+# PlayerD: 5
+# PlayerE: 5 (folded)
+#
+# Pot 5:
+# PlayerA: 5
+# PlayerD: 5
