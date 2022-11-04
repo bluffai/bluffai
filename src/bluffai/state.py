@@ -1,11 +1,36 @@
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Tuple, TypedDict
 
-from . import Card, Deck, NumChips, PlayerID
+from . import Card, NumChips, PlayerID
 
 StateType = str
 PlayerPosition = int
-Pot = dict[PlayerID, NumChips]
+Deck = list[Card]
+
+
+class InvalidPotError(Exception):
+    pass
+
+
+def validate_pot(predicate: bool, description: str):
+    if not predicate:
+        raise InvalidPotError(description)
+
+
+@dataclass
+class Pot:
+    player_ids: list[PlayerID]
+    player_chips: NumChips
+
+    def __post_init__(self) -> None:
+        validate_pot(
+            len(self.player_ids) >= 2,
+            "The number of players must be greater than or equal to 2.",
+        )
+        validate_pot(
+            self.player_chips > 0,
+            "The number of chips per player must be positive.",
+        )
 
 
 class InvalidStateError(Exception):
@@ -35,6 +60,7 @@ class BuyingIn(State):
     player_stacks: list[NumChips]
 
     def __post_init__(self) -> None:
+        # Validate players in the game.
         validate_state(
             len(self.player_ids) <= 23,
             "The number of players must be less than or equal to 23.",
@@ -43,6 +69,8 @@ class BuyingIn(State):
             len(self.player_ids) == len(set(self.player_ids)),
             "Every player must have a unique ID.",
         )
+
+        # Validate stacks of players in the game.
         validate_state(
             len(self.player_stacks) == len(self.player_ids),
             "Every player must have a stack.",
@@ -68,6 +96,7 @@ class SettingBlinds(State):
     hand_player_ids: list[PlayerID]
 
     def __post_init__(self) -> None:
+        # Validate players in the game.
         validate_state(
             len(self.player_ids) <= 23,
             "The number of players must be less than or equal to 23.",
@@ -76,6 +105,8 @@ class SettingBlinds(State):
             len(self.player_ids) == len(set(self.player_ids)),
             "Every player must have a unique ID.",
         )
+
+        # Validate stacks of players in the game.
         validate_state(
             len(self.player_stacks) == len(self.player_ids),
             "Every player must have a stack.",
@@ -84,6 +115,8 @@ class SettingBlinds(State):
             all([player_stack >= 0 for player_stack in self.player_stacks]),
             "Every player must have a non-negative stack.",
         )
+
+        # Validate players in the hand.
         validate_state(
             len(self.hand_player_ids) >= 2,
             "The number of players in the the hand must be greater than or equal to 2.",
@@ -92,6 +125,8 @@ class SettingBlinds(State):
             all([player_id in self.player_ids for player_id in self.hand_player_ids]),
             "Every player in the hand must be a player in the game.",
         )
+
+        # Validate stacks of players in the hand.
         validate_state(
             all(
                 [
@@ -120,6 +155,7 @@ class PlacingBlinds(State):
     big_blind: NumChips
 
     def __post_init__(self) -> None:
+        # Validate players in the game.
         validate_state(
             len(self.player_ids) <= 23,
             "The number of players must be less than or equal to 23.",
@@ -128,6 +164,8 @@ class PlacingBlinds(State):
             len(self.player_ids) == len(set(self.player_ids)),
             "Every player must have a unique ID.",
         )
+
+        # Validate stacks of players in the game.
         validate_state(
             len(self.player_stacks) == len(self.player_ids),
             "Every player must have a stack.",
@@ -136,6 +174,8 @@ class PlacingBlinds(State):
             all([player_stack >= 0 for player_stack in self.player_stacks]),
             "Every player must have a non-negative stack.",
         )
+
+        # Validate players in the hand.
         validate_state(
             len(self.hand_player_ids) >= 2,
             "The number of players in the the hand must be greater than or equal to 2.",
@@ -144,6 +184,8 @@ class PlacingBlinds(State):
             all([player_id in self.player_ids for player_id in self.hand_player_ids]),
             "Every player in the hand must be a player in the game.",
         )
+
+        # Validate stacks of players in the hand.
         validate_state(
             all(
                 [
@@ -153,6 +195,8 @@ class PlacingBlinds(State):
             ),
             "Every player in the hand must have a positive stack.",
         )
+
+        # Validate blinds.
         validate_state(self.little_blind > 0, "The little blind must be positive.")
         validate_state(self.big_blind > 0, "The big blind must be positive.")
 
@@ -175,6 +219,7 @@ class ShuffleDeck(State):
     hand_player_bets: list[NumChips]
 
     def __post_init__(self) -> None:
+        # Validate players in the game.
         validate_state(
             len(self.player_ids) <= 23,
             "The number of players must be less than or equal to 23.",
@@ -183,6 +228,8 @@ class ShuffleDeck(State):
             len(self.player_ids) == len(set(self.player_ids)),
             "Every player must have a unique ID.",
         )
+
+        # Validate stacks of players in the game.
         validate_state(
             len(self.player_stacks) == len(self.player_ids),
             "Every player must have a stack.",
@@ -191,6 +238,8 @@ class ShuffleDeck(State):
             all([player_stack >= 0 for player_stack in self.player_stacks]),
             "Every player must have a non-negative stack.",
         )
+
+        # Validate players in the hand.
         validate_state(
             len(self.hand_player_ids) >= 2,
             "The number of players in the the hand must be greater than or equal to 2.",
@@ -199,6 +248,8 @@ class ShuffleDeck(State):
             all([player_id in self.player_ids for player_id in self.hand_player_ids]),
             "Every player in the hand must be a player in the game.",
         )
+
+        # Validate stacks of players in the hand.
         validate_state(
             all(
                 [
@@ -208,8 +259,12 @@ class ShuffleDeck(State):
             ),
             "Every player in the hand must have a positive stack.",
         )
+
+        # Validate blinds.
         validate_state(self.little_blind > 0, "The little blind must be positive.")
         validate_state(self.big_blind > 0, "The big blind must be positive.")
+
+        # Validate bets of players in the hand.
         validate_state(
             len(self.hand_player_bets) == len(self.hand_player_ids),
             "Every player in the hand must have a bet.",
@@ -234,7 +289,7 @@ class ShuffleDeck(State):
         validate_state(
             self.hand_player_bets[0] == self.big_blind
             or self.hand_player_bets[0]
-            == self.player_stacks[self.player_ids.index(self.hand_player_ids[1])],
+            == self.player_stacks[self.player_ids.index(self.hand_player_ids[0])],
             "The player in the little blind position must have a bet that is equal to "
             "the little blind or be all-in.",
         )
@@ -273,6 +328,7 @@ class DealingHoldCards(State):
     deck: Deck
 
     def __post_init__(self) -> None:
+        # Validate players in the game.
         validate_state(
             len(self.player_ids) <= 23,
             "The number of players must be less than or equal to 23.",
@@ -281,6 +337,8 @@ class DealingHoldCards(State):
             len(self.player_ids) == len(set(self.player_ids)),
             "Every player must have a unique ID.",
         )
+
+        # Validate stacks of players in the game.
         validate_state(
             len(self.player_stacks) == len(self.player_ids),
             "Every player must have a stack.",
@@ -289,6 +347,8 @@ class DealingHoldCards(State):
             all([player_stack >= 0 for player_stack in self.player_stacks]),
             "Every player must have a non-negative stack.",
         )
+
+        # Validate players in the hand.
         validate_state(
             len(self.hand_player_ids) >= 2,
             "The number of players in the the hand must be greater than or equal to 2.",
@@ -297,6 +357,8 @@ class DealingHoldCards(State):
             all([player_id in self.player_ids for player_id in self.hand_player_ids]),
             "Every player in the hand must be a player in the game.",
         )
+
+        # Validate stacks of players in the hand.
         validate_state(
             all(
                 [
@@ -306,8 +368,12 @@ class DealingHoldCards(State):
             ),
             "Every player in the hand must have a positive stack.",
         )
+
+        # Validate blinds.
         validate_state(self.little_blind > 0, "The little blind must be positive.")
         validate_state(self.big_blind > 0, "The big blind must be positive.")
+
+        # Validate bets of players in the hand.
         validate_state(
             len(self.hand_player_bets) == len(self.hand_player_ids),
             "Every player in the hand must have a bet.",
@@ -332,7 +398,7 @@ class DealingHoldCards(State):
         validate_state(
             self.hand_player_bets[0] == self.big_blind
             or self.hand_player_bets[0]
-            == self.player_stacks[self.player_ids.index(self.hand_player_ids[1])],
+            == self.player_stacks[self.player_ids.index(self.hand_player_ids[0])],
             "The player in the little blind position must have a bet that is equal to "
             "the little blind or be all-in.",
         )
@@ -350,7 +416,16 @@ class DealingHoldCards(State):
             "Every player in the hand who is not in the little blind position and is "
             "not in the big blind position must have a bet of 0.",
         )
-        validate_state(len(self.deck) == 52, "The deck must have 52 cards.")
+
+        # Validate cards in the hand.
+        validate_state(
+            len(self.deck) == 52,
+            "There must be 52 total cards in the hand.",
+        )
+        validate_state(
+            len(self.deck) == len(set(self.deck)),
+            "Every card in the hand must be unique.",
+        )
 
 
 @dataclass
@@ -373,10 +448,11 @@ class PreFlopBetting(State):
     big_blind: NumChips
     hand_player_bets: list[NumChips]
     deck: Deck
-    hand_player_hold_cards: list[Tuple[Card, Card]]
+    hand_player_hole_cards: list[Tuple[Card, Card]]
     hand_player_has_folded: list[bool]
 
     def __post_init__(self) -> None:
+        # Validate players in the game.
         validate_state(
             len(self.player_ids) <= 23,
             "The number of players must be less than or equal to 23.",
@@ -385,6 +461,8 @@ class PreFlopBetting(State):
             len(self.player_ids) == len(set(self.player_ids)),
             "Every player must have a unique ID.",
         )
+
+        # Validate stacks of players in the game.
         validate_state(
             len(self.player_stacks) == len(self.player_ids),
             "Every player must have a stack.",
@@ -393,6 +471,8 @@ class PreFlopBetting(State):
             all([player_stack >= 0 for player_stack in self.player_stacks]),
             "Every player must have a non-negative stack.",
         )
+
+        # Validate players in the hand.
         validate_state(
             len(self.hand_player_ids) >= 2,
             "The number of players in the the hand must be greater than or equal to 2.",
@@ -410,8 +490,12 @@ class PreFlopBetting(State):
             ),
             "Every player in the hand must have a positive stack.",
         )
+
+        # Validate blinds.
         validate_state(self.little_blind > 0, "The little blind must be positive.")
         validate_state(self.big_blind > 0, "The big blind must be positive.")
+
+        # Validate bets of players in the hand.
         validate_state(
             len(self.hand_player_bets) == len(self.hand_player_ids),
             "Every player in the hand must have a bet.",
@@ -433,21 +517,37 @@ class PreFlopBetting(State):
             "Every player in the hand must have a stack that is greater than or equal "
             "to their bet.",
         )
+
+        # Validate cards in the hand.
+        hand_cards = [
+            hole_card
+            for hand_player_hole_cards in self.hand_player_hole_cards
+            for hole_card in hand_player_hole_cards
+        ]
+        hand_cards.extend(self.deck)
         validate_state(
-            len(self.deck) == 52 - 2 * len(self.hand_player_ids),
-            "The deck must have 52 cards minus 2 cards for each player in the hand.",
+            len(hand_cards) == 52,
+            "There must be 52 total cards in the hand.",
         )
         validate_state(
-            len(self.hand_player_hold_cards) == len(self.hand_player_ids),
+            len(hand_cards) == len(set(hand_cards)),
+            "Every card in the hand must be unique.",
+        )
+
+        # Validate hole cards of players in the hand.
+        validate_state(
+            len(self.hand_player_hole_cards) == len(self.hand_player_ids),
             "Every player in the hand must have hole cards.",
         )
+
+        # Validate folded players in the hand.
         validate_state(
             len(self.hand_player_has_folded) == len(self.hand_player_ids),
             "Every player in the hand must have folded or not have folded.",
         )
         validate_state(
             not all(self.hand_player_has_folded),
-            "At least one player in the hand must not have folded.",
+            "At least 1 player in the hand must not have folded.",
         )
 
 
@@ -468,11 +568,12 @@ class DealingFlopCards(State):
     big_blind: NumChips
     hand_player_bets: list[NumChips]
     deck: Deck
-    hand_player_hold_cards: list[Tuple[Card, Card]]
+    hand_player_hole_cards: list[Tuple[Card, Card]]
     hand_player_has_folded: list[bool]
     pots: list[Pot]
 
     def __post_init__(self) -> None:
+        # Validate players in the game.
         validate_state(
             len(self.player_ids) <= 23,
             "The number of players must be less than or equal to 23.",
@@ -481,6 +582,8 @@ class DealingFlopCards(State):
             len(self.player_ids) == len(set(self.player_ids)),
             "Every player must have a unique ID.",
         )
+
+        # Validate stacks of players in the game.
         validate_state(
             len(self.player_stacks) == len(self.player_ids),
             "Every player must have a stack.",
@@ -489,6 +592,8 @@ class DealingFlopCards(State):
             all([player_stack >= 0 for player_stack in self.player_stacks]),
             "Every player must have a non-negative stack.",
         )
+
+        # Validate players in the hand.
         validate_state(
             len(self.hand_player_ids) >= 2,
             "The number of players in the the hand must be greater than or equal to 2.",
@@ -506,8 +611,12 @@ class DealingFlopCards(State):
             ),
             "Every player in the hand must have a non-negative stack.",
         )
+
+        # Validate blinds.
         validate_state(self.little_blind > 0, "The little blind must be positive.")
         validate_state(self.big_blind > 0, "The big blind must be positive.")
+
+        # Validate bets of players in the hand.
         validate_state(
             len(self.hand_player_bets) == len(self.hand_player_ids),
             "Every player in the hand must have a bet.",
@@ -516,51 +625,211 @@ class DealingFlopCards(State):
             all([hand_player_bet == 0 for hand_player_bet in self.hand_player_bets]),
             "Every player in the hand must have a bet equal to 0.",
         )
+
+        # Validate cards in the hand.
+        hand_cards = [
+            hole_card
+            for hand_player_hole_cards in self.hand_player_hole_cards
+            for hole_card in hand_player_hole_cards
+        ]
+        hand_cards.extend(self.deck)
         validate_state(
-            len(self.deck) == 52 - 2 * len(self.hand_player_ids),
-            "The deck must have 52 cards minus 2 cards for each player in the hand.",
+            len(hand_cards) == 52,
+            "There must be 52 total cards in the hand.",
         )
         validate_state(
-            len(self.hand_player_hold_cards) == len(self.hand_player_ids),
+            len(hand_cards) == len(set(hand_cards)),
+            "Every card in the hand must be unique.",
+        )
+
+        # Validate hole cards of players in the hand.
+        validate_state(
+            len(self.hand_player_hole_cards) == len(self.hand_player_ids),
             "Every player in the hand must have hole cards.",
         )
+
+        # Validate folded players in the hand.
         validate_state(
             len(self.hand_player_has_folded) == len(self.hand_player_ids),
             "Every player in the hand must have folded or not have folded.",
         )
         validate_state(
-            not all(self.hand_player_has_folded),
-            "At least one player in the hand must not have folded.",
+            len(
+                [
+                    hand_player_has_folded
+                    for hand_player_has_folded in self.hand_player_has_folded
+                    if not hand_player_has_folded
+                ]
+            )
+            >= 2,
+            "At least 2 players in the hand must not have folded.",
         )
+
+        # Validate pots in the hand.
         validate_state(
             all(
                 [
-                    all([player_id in self.player_ids for player_id in pot])
+                    all([player_id in self.player_ids for player_id in pot.player_ids])
                     for pot in self.pots
                 ]
             ),
             "For every pot in the hand, every player in the pot must be a player in "
             "the game.",
         )
+
+
+@dataclass
+class PostFlopBetting(State):
+    """
+    Previous states:
+        * DealingFlopCards -> DealFlopCards
+
+    Next states:
+        * PlayerCalls -> PostFlopBetting
+        * PlayerRaises -> PostFlopBetting
+        * PlayerFolds -> PostFlopBetting
+        * FinishPostFlopBetting -> DealingTurnCard
+    """
+
+    player_ids: list[PlayerID]
+    player_stacks: list[NumChips]
+    hand_player_ids: list[PlayerID]
+    little_blind: NumChips
+    big_blind: NumChips
+    hand_player_bets: list[NumChips]
+    deck: Deck
+    hand_player_hole_cards: list[Tuple[Card, Card]]
+    hand_player_has_folded: list[bool]
+    pots: list[Pot]
+    flop_cards: Tuple[Card, Card, Card]
+
+    def __post_init__(self) -> None:
+        # Validate players in the game.
         validate_state(
-            all(
-                [
-                    all([player_stake > 0 for player_stake in pot.values()])
-                    for pot in self.pots
-                ]
-            ),
-            "For every pot in the hand, every player must have a positive stake.",
+            len(self.player_ids) <= 23,
+            "The number of players must be less than or equal to 23.",
         )
         validate_state(
-            all(
-                [
-                    all([player_stake > 0 for player_stake in pot.values()])
-                    for pot in self.pots
-                ]
-            ),
-            "For every pot in the hand, every player must have a positive stake.",
+            len(self.player_ids) == len(set(self.player_ids)),
+            "Every player must have a unique ID.",
         )
 
+        # Validate stacks of players in the game.
+        validate_state(
+            len(self.player_stacks) == len(self.player_ids),
+            "Every player must have a stack.",
+        )
+        validate_state(
+            all([player_stack >= 0 for player_stack in self.player_stacks]),
+            "Every player must have a non-negative stack.",
+        )
+
+        # Validate players in the hand.
+        validate_state(
+            len(self.hand_player_ids) >= 2,
+            "The number of players in the the hand must be greater than or equal to 2.",
+        )
+        validate_state(
+            all([player_id in self.player_ids for player_id in self.hand_player_ids]),
+            "Every player in the hand must be a player in the game.",
+        )
+        validate_state(
+            all(
+                [
+                    self.player_stacks[self.player_ids.index(player_id)] >= 0
+                    for player_id in self.hand_player_ids
+                ]
+            ),
+            "Every player in the hand must have a non-negative stack.",
+        )
+
+        # Validate blinds.
+        validate_state(self.little_blind > 0, "The little blind must be positive.")
+        validate_state(self.big_blind > 0, "The big blind must be positive.")
+
+        # Validate bets of players in the game.
+        validate_state(
+            len(self.hand_player_bets) == len(self.hand_player_ids),
+            "Every player in the hand must have a bet.",
+        )
+        validate_state(
+            all([hand_player_bet >= 0 for hand_player_bet in self.hand_player_bets]),
+            "Every player in the hand must have a non-negative bet.",
+        )
+        validate_state(
+            all(
+                [
+                    self.player_stacks[self.player_ids.index(hand_player_id)]
+                    >= hand_player_bet
+                    for hand_player_id, hand_player_bet in zip(
+                        self.hand_player_ids, self.hand_player_bets
+                    )
+                ]
+            ),
+            "Every player in the hand must have a stack that is greater than or equal "
+            "to their bet.",
+        )
+
+        # Validate cards in the hand.
+        hand_cards = [
+            hole_card
+            for hand_player_hole_cards in self.hand_player_hole_cards
+            for hole_card in hand_player_hole_cards
+        ]
+        hand_cards.extend(self.deck)
+        hand_cards.extend(self.flop_cards)
+        validate_state(
+            len(hand_cards) == 52,
+            "There must be 52 total cards in the hand.",
+        )
+        validate_state(
+            len(hand_cards) == len(set(hand_cards)),
+            "Every card in the hand must be unique.",
+        )
+
+        # Validate hole cards of players in the hand.
+        validate_state(
+            len(self.hand_player_hole_cards) == len(self.hand_player_ids),
+            "Every player in the hand must have hole cards.",
+        )
+
+        # Validate folded players in the hand.
+        validate_state(
+            len(self.hand_player_has_folded) == len(self.hand_player_ids),
+            "Every player in the hand must have folded or not have folded.",
+        )
+        validate_state(
+            len(self.hand_player_has_folded) == len(self.hand_player_ids),
+            "Every player in the hand must have folded or not have folded.",
+        )
+        validate_state(
+            len(
+                [
+                    hand_player_has_folded
+                    for hand_player_has_folded in self.hand_player_has_folded
+                    if not hand_player_has_folded
+                ]
+            )
+            >= 2,
+            "At least 2 players in the hand must not have folded.",
+        )
+
+        # Validate pots in the hand.
+        validate_state(
+            all(
+                [
+                    all([player_id in self.player_ids for player_id in pot.player_ids])
+                    for pot in self.pots
+                ]
+            ),
+            "For every pot in the hand, every player in the pot must be a player in "
+            "the game.",
+        )
+
+
+# TODO
+# 1. Review the validations for DealingFlopCards.
+# 2. Write validations for PostFlopBetting state.
 
 # Pots
 # After a betting round, there may be multiple pots (a.k.a. side pots).
