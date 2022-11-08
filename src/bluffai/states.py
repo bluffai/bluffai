@@ -1,64 +1,24 @@
 from dataclasses import dataclass
-from typing import Tuple
 
-from . import Card, NumChips, PlayerID
+from bluffai.types import Card, Deck, NumChips, PlayerID, Pot, State
+from bluffai.validate import validate_state
 
 StateType = str
 PlayerPosition = int
-Deck = list[Card]
 
 
-class InvalidPotError(Exception):
-    pass
-
-
-def validate_pot(predicate: bool, description: str):
-    if not predicate:
-        raise InvalidPotError(description)
-
-
-@dataclass
-class Pot:
-    player_ids: list[PlayerID]
-    player_chips: NumChips
-
-    def __post_init__(self) -> None:
-        validate_pot(
-            len(self.player_ids) >= 2,
-            "The number of players must be greater than or equal to 2.",
-        )
-        validate_pot(
-            self.player_chips > 0,
-            "The number of chips per player must be positive.",
-        )
-
-
-class InvalidStateError(Exception):
-    pass
-
-
-def validate_state(predicate: bool, description: str):
-    if not predicate:
-        raise InvalidStateError(description)
-
-
-class State:
-    pass
-
-
-@dataclass
-class BuyingIn(State):
+@dataclass(frozen=True, kw_only=True)
+class StartingGame(State):
     """
     No previous states.
 
     Next states:
-        * PlayerBuysIn -> BuyingIn
         * StartHand -> SettingBlinds
         * EndGame -> GameOver
     """
 
-    player_ids: list[PlayerID]
-    player_stacks: list[NumChips]
+    player_ids: tuple[PlayerID, ...]
+    player_stacks: tuple[NumChips, ...]
 
     def __post_init__(self) -> None:
         # Validate players in the game.
@@ -82,7 +42,7 @@ class BuyingIn(State):
         )
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class SettingBlinds(State):
     """
     Previous states:
@@ -92,9 +52,9 @@ class SettingBlinds(State):
         * SetBlinds -> PlacingBlinds
     """
 
-    player_ids: list[PlayerID]
-    player_stacks: list[NumChips]
-    hand_player_ids: list[PlayerID]
+    player_ids: tuple[PlayerID, ...]
+    player_stacks: tuple[NumChips, ...]
+    hand_player_ids: tuple[PlayerID, ...]
 
     def __post_init__(self) -> None:
         # Validate players in the game.
@@ -139,7 +99,7 @@ class SettingBlinds(State):
         )
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class PlacingBlinds(State):
     """
     Previous states:
@@ -149,9 +109,9 @@ class PlacingBlinds(State):
         * PlaceBlinds -> ShufflingDeck
     """
 
-    player_ids: list[PlayerID]
-    player_stacks: list[NumChips]
-    hand_player_ids: list[PlayerID]
+    player_ids: tuple[PlayerID, ...]
+    player_stacks: tuple[NumChips, ...]
+    hand_player_ids: tuple[PlayerID, ...]
     little_blind: NumChips
     big_blind: NumChips
 
@@ -202,7 +162,7 @@ class PlacingBlinds(State):
         validate_state(self.big_blind > 0, "The big blind must be positive.")
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class ShuffleDeck(State):
     """
     Previous states:
@@ -212,12 +172,12 @@ class ShuffleDeck(State):
         * ShuffleDeck -> DealingHoleCards
     """
 
-    player_ids: list[PlayerID]
-    player_stacks: list[NumChips]
-    hand_player_ids: list[PlayerID]
+    player_ids: tuple[PlayerID, ...]
+    player_stacks: tuple[NumChips, ...]
+    hand_player_ids: tuple[PlayerID, ...]
     little_blind: NumChips
     big_blind: NumChips
-    hand_player_bets: list[NumChips]
+    hand_player_bets: tuple[NumChips, ...]
 
     def __post_init__(self) -> None:
         # Validate players in the game.
@@ -310,8 +270,8 @@ class ShuffleDeck(State):
         )
 
 
-@dataclass
-class DealingHoldCards(State):
+@dataclass(frozen=True, kw_only=True)
+class DealingHoleCards(State):
     """
     Previous states:
         * ShufflingDeck -> ShuffleDeck
@@ -320,12 +280,12 @@ class DealingHoldCards(State):
         * DealHoleCards -> PreFlopBetting
     """
 
-    player_ids: list[PlayerID]
-    player_stacks: list[NumChips]
-    hand_player_ids: list[PlayerID]
+    player_ids: tuple[PlayerID, ...]
+    player_stacks: tuple[NumChips, ...]
+    hand_player_ids: tuple[PlayerID, ...]
     little_blind: NumChips
     big_blind: NumChips
-    hand_player_bets: list[NumChips]
+    hand_player_bets: tuple[NumChips, ...]
     deck: Deck
 
     def __post_init__(self) -> None:
@@ -419,7 +379,7 @@ class DealingHoldCards(State):
         )
 
         # Validate cards in the hand.
-        hand_cards = self.deck.copy()
+        hand_cards = self.deck
         validate_state(
             len(hand_cards) == 52,
             "There must be 52 total cards in the hand.",
@@ -430,7 +390,7 @@ class DealingHoldCards(State):
         )
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class PreFlopBetting(State):
     """
     Previous states:
@@ -443,15 +403,15 @@ class PreFlopBetting(State):
         * FinishPreFlopBetting -> DealingFlopCards
     """
 
-    player_ids: list[PlayerID]
-    player_stacks: list[NumChips]
-    hand_player_ids: list[PlayerID]
+    player_ids: tuple[PlayerID, ...]
+    player_stacks: tuple[NumChips, ...]
+    hand_player_ids: tuple[PlayerID, ...]
     little_blind: NumChips
     big_blind: NumChips
-    hand_player_bets: list[NumChips]
+    hand_player_bets: tuple[NumChips, ...]
     deck: Deck
-    hand_player_hole_cards: list[Tuple[Card, Card]]
-    hand_player_has_folded: list[bool]
+    hand_player_hole_cards: tuple[tuple[Card, Card], ...]
+    hand_player_has_folded: tuple[bool, ...]
 
     def __post_init__(self) -> None:
         # Validate players in the game.
@@ -521,12 +481,13 @@ class PreFlopBetting(State):
         )
 
         # Validate cards in the hand.
-        hand_cards = [
-            hole_card
-            for hand_player_hole_cards in self.hand_player_hole_cards
-            for hole_card in hand_player_hole_cards
-        ]
-        hand_cards.extend(self.deck)
+        hand_cards = self.deck + tuple(
+            [
+                hole_card
+                for hand_player_hole_cards in self.hand_player_hole_cards
+                for hole_card in hand_player_hole_cards
+            ]
+        )
         validate_state(
             len(hand_cards) == 52,
             "There must be 52 total cards in the hand.",
@@ -553,7 +514,7 @@ class PreFlopBetting(State):
         )
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class DealingFlopCards(State):
     """
     Previous states:
@@ -563,15 +524,15 @@ class DealingFlopCards(State):
         * DealFlopCards -> PostFlopBetting
     """
 
-    player_ids: list[PlayerID]
-    player_stacks: list[NumChips]
-    hand_player_ids: list[PlayerID]
+    player_ids: tuple[PlayerID, ...]
+    player_stacks: tuple[NumChips, ...]
+    hand_player_ids: tuple[PlayerID, ...]
     little_blind: NumChips
     big_blind: NumChips
     deck: Deck
-    hand_player_hole_cards: list[Tuple[Card, Card]]
-    hand_player_has_folded: list[bool]
-    pots: list[Pot]
+    hand_player_hole_cards: tuple[tuple[Card, Card], ...]
+    hand_player_has_folded: tuple[bool, ...]
+    pots: tuple[Pot, ...]
 
     def __post_init__(self) -> None:
         # Validate players in the game.
@@ -618,12 +579,13 @@ class DealingFlopCards(State):
         validate_state(self.big_blind > 0, "The big blind must be positive.")
 
         # Validate cards in the hand.
-        hand_cards = [
-            hole_card
-            for hand_player_hole_cards in self.hand_player_hole_cards
-            for hole_card in hand_player_hole_cards
-        ]
-        hand_cards.extend(self.deck)
+        hand_cards = self.deck + tuple(
+            [
+                hole_card
+                for hand_player_hole_cards in self.hand_player_hole_cards
+                for hole_card in hand_player_hole_cards
+            ]
+        )
         validate_state(
             len(hand_cards) == 52,
             "There must be 52 total cards in the hand.",
@@ -678,7 +640,7 @@ class DealingFlopCards(State):
         )
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class PostFlopBetting(State):
     """
     Previous states:
@@ -691,17 +653,17 @@ class PostFlopBetting(State):
         * FinishPostFlopBetting -> DealingTurnCard
     """
 
-    player_ids: list[PlayerID]
-    player_stacks: list[NumChips]
-    hand_player_ids: list[PlayerID]
+    player_ids: tuple[PlayerID, ...]
+    player_stacks: tuple[NumChips, ...]
+    hand_player_ids: tuple[PlayerID, ...]
     little_blind: NumChips
     big_blind: NumChips
-    hand_player_bets: list[NumChips]
+    hand_player_bets: tuple[NumChips, ...]
     deck: Deck
-    hand_player_hole_cards: list[Tuple[Card, Card]]
-    hand_player_has_folded: list[bool]
-    pots: list[Pot]
-    flop_cards: Tuple[Card, Card, Card]
+    hand_player_hole_cards: tuple[tuple[Card, Card], ...]
+    hand_player_has_folded: tuple[bool, ...]
+    pots: tuple[Pot, ...]
+    flop_cards: tuple[Card, Card, Card]
 
     def __post_init__(self) -> None:
         # Validate players in the game.
@@ -771,13 +733,17 @@ class PostFlopBetting(State):
         )
 
         # Validate cards in the hand.
-        hand_cards = [
-            hole_card
-            for hand_player_hole_cards in self.hand_player_hole_cards
-            for hole_card in hand_player_hole_cards
-        ]
-        hand_cards.extend(self.deck)
-        hand_cards.extend(self.flop_cards)
+        hand_cards = (
+            self.deck
+            + tuple(
+                [
+                    hole_card
+                    for hand_player_hole_cards in self.hand_player_hole_cards
+                    for hole_card in hand_player_hole_cards
+                ]
+            )
+            + self.flop_cards
+        )
         validate_state(
             len(hand_cards) == 52,
             "There must be 52 total cards in the hand.",
@@ -836,7 +802,7 @@ class PostFlopBetting(State):
         )
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class DealingTurnCard(State):
     """
     Previous states:
@@ -846,16 +812,16 @@ class DealingTurnCard(State):
         * DealTurnCard -> PostTurnBetting
     """
 
-    player_ids: list[PlayerID]
-    player_stacks: list[NumChips]
-    hand_player_ids: list[PlayerID]
+    player_ids: tuple[PlayerID, ...]
+    player_stacks: tuple[NumChips, ...]
+    hand_player_ids: tuple[PlayerID, ...]
     little_blind: NumChips
     big_blind: NumChips
     deck: Deck
-    hand_player_hole_cards: list[Tuple[Card, Card]]
-    hand_player_has_folded: list[bool]
-    pots: list[Pot]
-    flop_cards: Tuple[Card, Card, Card]
+    hand_player_hole_cards: tuple[tuple[Card, Card], ...]
+    hand_player_has_folded: tuple[bool, ...]
+    pots: tuple[Pot, ...]
+    flop_cards: tuple[Card, Card, Card]
 
     def __post_init__(self) -> None:
         # Validate players in the game.
@@ -902,12 +868,17 @@ class DealingTurnCard(State):
         validate_state(self.big_blind > 0, "The big blind must be positive.")
 
         # Validate cards in the hand.
-        hand_cards = [
-            hole_card
-            for hand_player_hole_cards in self.hand_player_hole_cards
-            for hole_card in hand_player_hole_cards
-        ]
-        hand_cards.extend(self.deck)
+        hand_cards = (
+            self.deck
+            + tuple(
+                [
+                    hole_card
+                    for hand_player_hole_cards in self.hand_player_hole_cards
+                    for hole_card in hand_player_hole_cards
+                ]
+            )
+            + self.flop_cards
+        )
         validate_state(
             len(hand_cards) == 52,
             "There must be 52 total cards in the hand.",
@@ -962,7 +933,7 @@ class DealingTurnCard(State):
         )
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class PostTurnBetting(State):
     """
     Previous states:
@@ -975,17 +946,17 @@ class PostTurnBetting(State):
         * FinishPostTurnBetting -> DealingRiverCard
     """
 
-    player_ids: list[PlayerID]
-    player_stacks: list[NumChips]
-    hand_player_ids: list[PlayerID]
+    player_ids: tuple[PlayerID, ...]
+    player_stacks: tuple[NumChips, ...]
+    hand_player_ids: tuple[PlayerID, ...]
     little_blind: NumChips
     big_blind: NumChips
-    hand_player_bets: list[NumChips]
+    hand_player_bets: tuple[NumChips, ...]
     deck: Deck
-    hand_player_hole_cards: list[Tuple[Card, Card]]
-    hand_player_has_folded: list[bool]
-    pots: list[Pot]
-    flop_cards: Tuple[Card, Card, Card]
+    hand_player_hole_cards: tuple[tuple[Card, Card], ...]
+    hand_player_has_folded: tuple[bool, ...]
+    pots: tuple[Pot, ...]
+    flop_cards: tuple[Card, Card, Card]
     turn_card: Card
 
     def __post_init__(self) -> None:
@@ -1056,14 +1027,18 @@ class PostTurnBetting(State):
         )
 
         # Validate cards in the hand.
-        hand_cards = [
-            hole_card
-            for hand_player_hole_cards in self.hand_player_hole_cards
-            for hole_card in hand_player_hole_cards
-        ]
-        hand_cards.extend(self.deck)
-        hand_cards.extend(self.flop_cards)
-        hand_cards.append(self.turn_card)
+        hand_cards = (
+            self.deck
+            + tuple(
+                [
+                    hole_card
+                    for hand_player_hole_cards in self.hand_player_hole_cards
+                    for hole_card in hand_player_hole_cards
+                ]
+            )
+            + self.flop_cards
+            + (self.turn_card,)
+        )
         validate_state(
             len(hand_cards) == 52,
             "There must be 52 total cards in the hand.",
@@ -1118,7 +1093,7 @@ class PostTurnBetting(State):
         )
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class DealingRiverCard(State):
     """
     Previous states:
@@ -1128,16 +1103,16 @@ class DealingRiverCard(State):
         * DealRiverCard -> PostRiverBetting
     """
 
-    player_ids: list[PlayerID]
-    player_stacks: list[NumChips]
-    hand_player_ids: list[PlayerID]
+    player_ids: tuple[PlayerID, ...]
+    player_stacks: tuple[NumChips, ...]
+    hand_player_ids: tuple[PlayerID, ...]
     little_blind: NumChips
     big_blind: NumChips
     deck: Deck
-    hand_player_hole_cards: list[Tuple[Card, Card]]
-    hand_player_has_folded: list[bool]
-    pots: list[Pot]
-    flop_cards: Tuple[Card, Card, Card]
+    hand_player_hole_cards: tuple[tuple[Card, Card], ...]
+    hand_player_has_folded: tuple[bool, ...]
+    pots: tuple[Pot, ...]
+    flop_cards: tuple[Card, Card, Card]
     turn_card: Card
 
     def __post_init__(self) -> None:
@@ -1185,14 +1160,18 @@ class DealingRiverCard(State):
         validate_state(self.big_blind > 0, "The big blind must be positive.")
 
         # Validate cards in the hand.
-        hand_cards = [
-            hole_card
-            for hand_player_hole_cards in self.hand_player_hole_cards
-            for hole_card in hand_player_hole_cards
-        ]
-        hand_cards.extend(self.deck)
-        hand_cards.extend(self.flop_cards)
-        hand_cards.append(self.turn_card)
+        hand_cards = (
+            self.deck
+            + tuple(
+                [
+                    hole_card
+                    for hand_player_hole_cards in self.hand_player_hole_cards
+                    for hole_card in hand_player_hole_cards
+                ]
+            )
+            + self.flop_cards
+            + (self.turn_card,)
+        )
         validate_state(
             len(hand_cards) == 52,
             "There must be 52 total cards in the hand.",
@@ -1247,7 +1226,7 @@ class DealingRiverCard(State):
         )
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class PostRiverBetting(State):
     """
     Previous states:
@@ -1260,17 +1239,17 @@ class PostRiverBetting(State):
         * FinishPostRiverBetting -> Showdown
     """
 
-    player_ids: list[PlayerID]
-    player_stacks: list[NumChips]
-    hand_player_ids: list[PlayerID]
+    player_ids: tuple[PlayerID, ...]
+    player_stacks: tuple[NumChips, ...]
+    hand_player_ids: tuple[PlayerID, ...]
     little_blind: NumChips
     big_blind: NumChips
-    hand_player_bets: list[NumChips]
+    hand_player_bets: tuple[NumChips, ...]
     deck: Deck
-    hand_player_hole_cards: list[Tuple[Card, Card]]
-    hand_player_has_folded: list[bool]
-    pots: list[Pot]
-    flop_cards: Tuple[Card, Card, Card]
+    hand_player_hole_cards: tuple[tuple[Card, Card], ...]
+    hand_player_has_folded: tuple[bool, ...]
+    pots: tuple[Pot, ...]
+    flop_cards: tuple[Card, Card, Card]
     turn_card: Card
     river_card: Card
 
@@ -1342,15 +1321,18 @@ class PostRiverBetting(State):
         )
 
         # Validate cards in the hand.
-        hand_cards = [
-            hole_card
-            for hand_player_hole_cards in self.hand_player_hole_cards
-            for hole_card in hand_player_hole_cards
-        ]
-        hand_cards.extend(self.deck)
-        hand_cards.extend(self.flop_cards)
-        hand_cards.append(self.turn_card)
-        hand_cards.append(self.river_card)
+        hand_cards = (
+            self.deck
+            + tuple(
+                [
+                    hole_card
+                    for hand_player_hole_cards in self.hand_player_hole_cards
+                    for hole_card in hand_player_hole_cards
+                ]
+            )
+            + self.flop_cards
+            + (self.turn_card, self.river_card)
+        )
         validate_state(
             len(hand_cards) == 52,
             "There must be 52 total cards in the hand.",
@@ -1405,7 +1387,7 @@ class PostRiverBetting(State):
         )
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class Showdown(State):
     """
     Previous states:
@@ -1417,17 +1399,17 @@ class Showdown(State):
         * RankHands -> DistributingPots
     """
 
-    player_ids: list[PlayerID]
-    player_stacks: list[NumChips]
-    hand_player_ids: list[PlayerID]
+    player_ids: tuple[PlayerID, ...]
+    player_stacks: tuple[NumChips, ...]
+    hand_player_ids: tuple[PlayerID, ...]
     deck: Deck
-    hand_player_hole_cards: list[Tuple[Card, Card]]
-    hand_player_has_folded: list[bool]
-    pots: list[Pot]
-    flop_cards: Tuple[Card, Card, Card]
+    hand_player_hole_cards: tuple[tuple[Card, Card], ...]
+    hand_player_has_folded: tuple[bool, ...]
+    pots: tuple[Pot, ...]
+    flop_cards: tuple[Card, Card, Card]
     turn_card: Card
     river_card: Card
-    hand_player_has_revealed_hand: list[bool]
+    hand_player_has_revealed_hand: tuple[bool, ...]
 
     def __post_init__(self) -> None:
         # Validate players in the game.
@@ -1470,15 +1452,18 @@ class Showdown(State):
         )
 
         # Validate cards in the hand.
-        hand_cards = [
-            hole_card
-            for hand_player_hole_cards in self.hand_player_hole_cards
-            for hole_card in hand_player_hole_cards
-        ]
-        hand_cards.extend(self.deck)
-        hand_cards.extend(self.flop_cards)
-        hand_cards.append(self.turn_card)
-        hand_cards.append(self.river_card)
+        hand_cards = (
+            self.deck
+            + tuple(
+                [
+                    hole_card
+                    for hand_player_hole_cards in self.hand_player_hole_cards
+                    for hole_card in hand_player_hole_cards
+                ]
+            )
+            + self.flop_cards
+            + (self.turn_card, self.river_card)
+        )
         validate_state(
             len(hand_cards) == 52,
             "There must be 52 total cards in the hand.",
@@ -1551,7 +1536,7 @@ class Showdown(State):
         )
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class DistributingPots(State):
     """
     Previous states:
@@ -1565,11 +1550,11 @@ class DistributingPots(State):
         * DistributePots -> PostHand
     """
 
-    player_ids: list[PlayerID]
-    player_stacks: list[NumChips]
-    hand_player_ids: list[PlayerID]
-    pots: list[Pot]
-    hand_ranking_player_ids: list[PlayerID]
+    player_ids: tuple[PlayerID, ...]
+    player_stacks: tuple[NumChips, ...]
+    hand_player_ids: tuple[PlayerID, ...]
+    pots: tuple[Pot, ...]
+    hand_ranking_player_ids: tuple[PlayerID, ...]
 
     def __post_init__(self) -> None:
         # Validate players in the game.
@@ -1649,8 +1634,8 @@ class DistributingPots(State):
         )
 
 
-@dataclass
-class PostHand:
+@dataclass(frozen=True, kw_only=True)
+class PostHand(State):
     """
     Previous States:
         * DistributingPots -> DistributePots
@@ -1660,8 +1645,8 @@ class PostHand:
         * EndGame -> GameOver
     """
 
-    player_ids: list[PlayerID]
-    player_stacks: list[NumChips]
+    player_ids: tuple[PlayerID, ...]
+    player_stacks: tuple[NumChips, ...]
 
     def __post_init__(self) -> None:
         # Validate players in the game.
@@ -1685,16 +1670,16 @@ class PostHand:
         )
 
 
-@dataclass
-class GameEnded:
+@dataclass(frozen=True, kw_only=True)
+class GameOver(State):
     """
     Previous States:
         * BuyingIn -> EndGame
         * PostHand -> EndGame
     """
 
-    player_ids: list[PlayerID]
-    player_stacks: list[NumChips]
+    player_ids: tuple[PlayerID, ...]
+    player_stacks: tuple[NumChips, ...]
 
     def __post_init__(self) -> None:
         # Validate players in the game.
